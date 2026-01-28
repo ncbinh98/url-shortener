@@ -10,7 +10,7 @@ import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { User } from './entities/user.entity';
 import { QueryUserDto } from './dto/query-user.dto';
-import { UtilsService } from 'src/shared/utils/utiles.service';
+import { UtilsService } from 'src/shared/utils/utils.service';
 
 @Injectable()
 export class UsersService {
