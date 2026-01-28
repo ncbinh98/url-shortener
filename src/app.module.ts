@@ -7,6 +7,7 @@ import { databaseConfig } from './config/database.config';
 import { UtilsModule } from './shared/utils/utils.module';
 import { UsersModule } from './modules/users/users.module';
 import { AuthModule } from './modules/auth/auth.module';
+import { ShortLinksModule } from './modules/short-links/short-links.module';
 
 @Module({
   imports: [
@@ -17,7 +18,8 @@ import { AuthModule } from './modules/auth/auth.module';
     DatabaseModule,
     UtilsModule,
     UsersModule,
-    AuthModule
+    AuthModule,
+    ShortLinksModule,
   ],
   controllers: [AppController],
   providers: [AppService],
