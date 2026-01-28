@@ -27,6 +27,9 @@ export class ShortLink {
   @Column({ type: 'varchar', unique: true, length: 255 })
   canonicalHash: string;
 
+  @Column({ type: 'timestamptz', nullable: true })
+  expiredAt?: Date;
+
   @Column({ type: 'varchar', length: 255 })
   createdBy: string;
 
