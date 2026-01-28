@@ -20,12 +20,31 @@ export class ShortLinksService {
     createShortLinkDto: CreateShortLinkDto,
     userPayload: UserJwtPayload,
   ) {
-    const canonicalUrl = this.utilsService.canonicalizeUrl(
-      createShortLinkDto.originalUrl,
-    );
+    const { customAlias, expiredAt, originalUrl } = createShortLinkDto;
+    const canonicalUrl = this.utilsService.canonicalizeUrl(originalUrl);
     const hashCodeCanonicalUrl =
       this.utilsService.hashCanonicalUrl(canonicalUrl);
 
+    // 1. If customAlias is provided, verify uniqueness and use as shortCode
+    if (customAlias) {
+      const existing = await this.shortLinkRepository.findOneBy({
+        shortCode: customAlias,
+      });
+      if (existing) {
+        throw new BadRequestException('Custom alias is already taken.');
+      }
+
+      return await this.shortLinkRepository.save({
+        shortCode: customAlias,
+        originalUrl,
+        canonicalUrl,
+        canonicalHash: hashCodeCanonicalUrl,
+        createdBy: userPayload?.email,
+        expiredAt: expiredAt ? new Date(expiredAt) : undefined,
+      });
+    }
+
+    // 2. If no customAlias, check if URL already has a generated shortCode
     const existUrl = await this.shortLinkRepository.findOneBy({
       canonicalHash: hashCodeCanonicalUrl,
     });
@@ -36,26 +55,22 @@ export class ShortLinksService {
     const MAX_RETRIES = 5;
 
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
-      // 1. Add salt only if retrying
       const saltedInput =
         attempt === 0 ? canonicalUrl : `${canonicalUrl}#${attempt}`;
 
-      // 2. Hash
       const hashCode = this.utilsService.hashCanonicalUrl(saltedInput);
-
-      // 3. Base62 encode + truncate to 8 chars
       const shortCode = this.utilsService.encodeHexToBase62(hashCode);
 
       try {
         return await this.shortLinkRepository.save({
-          ...createShortLinkDto,
           shortCode,
+          originalUrl,
           canonicalUrl,
           canonicalHash: hashCode,
           createdBy: userPayload?.email,
+          expiredAt: expiredAt ? new Date(expiredAt) : undefined,
         });
       } catch (error) {
-        // 4. If not a unique constraint error, rethrow
         if (
           !error?.message?.includes(
             'duplicate key value violates unique constraint',
@@ -63,11 +78,12 @@ export class ShortLinksService {
         ) {
           throw error;
         }
-        // Otherwise: collision → retry
       }
     }
 
-    throw new BadRequestException('Url existed. Please try again.');
+    throw new BadRequestException(
+      'Unable to generate short link. Please try again.',
+    );
   }
 
   findAll() {
