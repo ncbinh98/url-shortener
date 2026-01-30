@@ -31,7 +31,12 @@ export class ShortLinksController {
 
   @Get(':id')
   findOne(@Param('id') id: string) {
-    return this.shortLinksService.findOne(+id);
+    return this.shortLinksService.findOne(id);
+  }
+
+  @Get('resolve/:shortCode')
+  resolve(@Param('shortCode') shortCode: string) {
+    return this.shortLinksService.resolveShortCode(shortCode);
   }
 
   @Patch(':id')

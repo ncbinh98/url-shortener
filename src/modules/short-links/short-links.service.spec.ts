@@ -3,12 +3,14 @@ import { ShortLinksService } from './short-links.service';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { ShortLink } from './entities/short-link.entity';
 import { UtilsService } from 'src/shared/utils/utils.service';
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { REDIS_CLIENT } from 'src/infra/redis/redis.module';
 
 describe('ShortLinksService', () => {
   let service: ShortLinksService;
   let repositoryMock: any;
   let utilsServiceMock: any;
+  let redisMock: any;
 
   beforeEach(async () => {
     repositoryMock = {
@@ -22,6 +24,11 @@ describe('ShortLinksService', () => {
       encodeHexToBase62: jest.fn((hash) => 'shortcode'),
     };
 
+    redisMock = {
+      get: jest.fn(),
+      set: jest.fn(),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ShortLinksService,
@@ -32,6 +39,10 @@ describe('ShortLinksService', () => {
         {
           provide: UtilsService,
           useValue: utilsServiceMock,
+        },
+        {
+          provide: REDIS_CLIENT,
+          useValue: redisMock,
         },
       ],
     }).compile();
@@ -125,6 +136,112 @@ describe('ShortLinksService', () => {
         }),
       );
       expect(result.shortCode).toBe('shortcode');
+    });
+  });
+
+  describe('resolveShortCode', () => {
+    const shortCode = 'testCode';
+    const originalUrl = 'https://example.com';
+
+    it('should return from cache if exists', async () => {
+      redisMock.get.mockResolvedValue(originalUrl);
+
+      const result = await service.resolveShortCode(shortCode);
+
+      expect(redisMock.get).toHaveBeenCalledWith(`short_link:${shortCode}`);
+      expect(repositoryMock.findOneBy).not.toHaveBeenCalled();
+      expect(result).toEqual({ originalUrl });
+    });
+
+    it('should cache for 24h if no expiredAt', async () => {
+      redisMock.get.mockResolvedValue(null);
+      repositoryMock.findOneBy.mockResolvedValue({
+        shortCode,
+        originalUrl,
+        expiredAt: null,
+      });
+
+      await service.resolveShortCode(shortCode);
+
+      expect(redisMock.set).toHaveBeenCalledWith(
+        `short_link:${shortCode}`,
+        originalUrl,
+        'EX',
+        86400,
+      );
+    });
+
+    it('should cache for 24h if expiredAt is > 24h away', async () => {
+      redisMock.get.mockResolvedValue(null);
+      const farFuture = new Date();
+      farFuture.setHours(farFuture.getHours() + 48); // 48 hours away
+      repositoryMock.findOneBy.mockResolvedValue({
+        shortCode,
+        originalUrl,
+        expiredAt: farFuture,
+      });
+
+      await service.resolveShortCode(shortCode);
+
+      expect(redisMock.set).toHaveBeenCalledWith(
+        `short_link:${shortCode}`,
+        originalUrl,
+        'EX',
+        86400,
+      );
+    });
+
+    it('should cache with dynamic TTL if expiredAt is < 24h away', async () => {
+      redisMock.get.mockResolvedValue(null);
+      const nearFuture = new Date();
+      nearFuture.setHours(nearFuture.getHours() + 1); // 1 hour away
+      repositoryMock.findOneBy.mockResolvedValue({
+        shortCode,
+        originalUrl,
+        expiredAt: nearFuture,
+      });
+
+      const result = await service.resolveShortCode(shortCode);
+
+      const expectedTtl = Math.floor(
+        (nearFuture.getTime() - Date.now()) / 1000,
+      );
+      expect(redisMock.set).toHaveBeenCalledWith(
+        `short_link:${shortCode}`,
+        originalUrl,
+        'EX',
+        expect.any(Number),
+      );
+
+      const actualTtl = redisMock.set.mock.calls[0][3];
+      expect(actualTtl).toBeLessThanOrEqual(expectedTtl + 2);
+      expect(actualTtl).toBeGreaterThanOrEqual(expectedTtl - 2);
+      expect(result).toEqual({ originalUrl });
+    });
+
+    it('should throw NotFoundException if not in cache and not in DB', async () => {
+      redisMock.get.mockResolvedValue(null);
+      repositoryMock.findOneBy.mockResolvedValue(null);
+
+      await expect(service.resolveShortCode(shortCode)).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+
+    it('should throw NotFoundException if link is expired', async () => {
+      redisMock.get.mockResolvedValue(null);
+      const pastDate = new Date();
+      pastDate.setFullYear(pastDate.getFullYear() - 1);
+      repositoryMock.findOneBy.mockResolvedValue({
+        shortCode,
+        originalUrl,
+        expiredAt: pastDate,
+      });
+
+      await expect(service.resolveShortCode(shortCode)).rejects.toThrow(
+        NotFoundException,
+      );
+      expect(redisMock.set).not.toHaveBeenCalled();
     });
   });
 });
