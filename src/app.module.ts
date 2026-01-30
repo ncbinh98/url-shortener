@@ -8,6 +8,7 @@ import { UtilsModule } from './shared/utils/utils.module';
 import { UsersModule } from './modules/users/users.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { ShortLinksModule } from './modules/short-links/short-links.module';
+import { RedisModule } from './infra/redis/redis.module';
 
 @Module({
   imports: [
@@ -16,6 +17,7 @@ import { ShortLinksModule } from './modules/short-links/short-links.module';
       load: [databaseConfig],
     }),
     DatabaseModule,
+    RedisModule,
     UtilsModule,
     UsersModule,
     AuthModule,
